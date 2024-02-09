@@ -22,7 +22,7 @@ const char* const notification_type[NOTIF_MAX] = {
 
 const char* const on_off_option_type[2u] = {"OFF", "ON"};
 
-const char* const rythms[] = {"none", "2/4", "3/4", "4/4", "6/8"};
+const char* const rythms[RYTHM_MAX] = {"none", "2/4", "3/4", "4/4", "6/8"};
 
 static bool s_back = false;
 
@@ -34,6 +34,7 @@ struct metronomeMenu {
     VariableItemList* var_item_list;
     ScreenRequestCb screen_req;
     NotificationTypeCb notif_cb;
+    RythmCb rythm_cb;
     void* cb_ctx;
 };
 
@@ -47,12 +48,10 @@ static void notification_type_changed(VariableItem* item) {
 }
 
 static void rythm_changed(VariableItem* item) {
-#if 0
     metronomeMenu_t menu = (metronomeMenu_t)variable_item_get_context(item);
-#endif
     uint8_t index = variable_item_get_current_value_index(item);
     variable_item_set_current_value_text(item, rythms[index]);
-    /* TODO: notify app */
+    menu->rythm_cb((RythmType)index, menu->cb_ctx);
 }
 
 static uint32_t menu_exit(void* context) {
@@ -66,6 +65,7 @@ metronomeMenu_t menu_alloc(
     ScreenRequestCb screen_req,
     NotificationTypeCb notification_type_cb,
     NotificationGetCb notification_get_cb,
+    RythmCb rythm_cb,
     void* cb_ctx) {
     struct metronomeMenu* const menu = malloc(sizeof(struct metronomeMenu));
     furi_assert(menu != NULL);
@@ -109,6 +109,7 @@ metronomeMenu_t menu_alloc(
     view_dispatcher_switch_to_view(menu->view_dispatcher, CURRENT_VIEW);
     menu->screen_req = screen_req;
     menu->notif_cb = notification_type_cb;
+    menu->rythm_cb = rythm_cb;
     menu->cb_ctx = cb_ctx;
     return menu;
 }

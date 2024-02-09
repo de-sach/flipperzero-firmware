@@ -42,7 +42,17 @@ typedef struct {
     MetroView_t view;
     screen_t screen;
     bool notification_type_settings[NOTIF_MAX];
+    RythmType rythm;
+    uint8_t current_beat;
 } metronomeCtx;
+
+const uint8_t rythmEmphasis[RYTHM_MAX] = {
+    [RYTHM_NONE] = 0,
+    [RYTHM_2_4] = 2,
+    [RYTHM_3_4] = 3,
+    [RYTHM_4_4] = 4,
+    [RYTHM_6_8] = 6,
+};
 
 /* required to be static */
 static const NotificationSequence sequence_play_sound = {
@@ -51,6 +61,32 @@ static const NotificationSequence sequence_play_sound = {
     &message_sound_off,
     NULL, /* null at end of sequence required */
 };
+
+static const NotificationSequence sequence_play_sound_em = {
+    &message_note_e5,
+    &message_delay_50,
+    &message_sound_off,
+    NULL, /* null at end of sequence required */
+};
+
+const NotificationSequence sequence_vibro_short = {
+    &message_vibro_on,
+    &message_delay_50,
+    &message_vibro_off,
+    NULL,
+};
+
+const NotificationSequence sequence_vibro_short_em = {
+    &message_vibro_on,
+    &message_delay_100,
+    &message_vibro_off,
+    NULL,
+};
+
+static void rythm_callback(RythmType rythm, void* ctx) {
+    metronomeCtx* metronome = (metronomeCtx*)ctx;
+    metronome->rythm = rythm;
+}
 
 static bool get_notification_callback(NotificationType notification, void* ctx) {
     metronomeCtx* metronome = (metronomeCtx*)ctx;
@@ -89,6 +125,7 @@ static void set_metronome_active(bool active, void* ctx) {
     FURI_LOG_I(TAG, "metronome active cb:  %s", active ? "on" : "off");
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     metronome->active = active;
+    metronome->current_beat = rythmEmphasis[metronome->rythm];
     if(metronome->active) {
         furi_timer_stop(metronome->timer);
         uint8_t const bpm_current = get_bpm(metronome);
@@ -121,18 +158,32 @@ static void main_screen_req(void* ctx) {
 
 static void timer_callback(void* ctx) {
     metronomeCtx* metronome = (metronomeCtx*)ctx;
-    FURI_LOG_I(TAG, "timer callback");
-    FURI_LOG_I(TAG, "metronome: %p", ctx);
-    FURI_LOG_I(TAG, "sequence sound: %p", &sequence_play_sound);
 
-    if(metronome->notification_type_settings[NOTIF_SOUND]) {
-        notification_message(metronome->notifications, &sequence_play_sound);
+    metronome->current_beat++;
+    if(metronome->current_beat >= rythmEmphasis[metronome->rythm]) {
+        metronome->current_beat = 0u;
     }
-    if(metronome->notification_type_settings[NOTIF_LED]) {
-        notification_message(metronome->notifications, &sequence_blink_green_100);
-    }
-    if(metronome->notification_type_settings[NOTIF_BUZZER]) {
-        notification_message(metronome->notifications, &sequence_single_vibro);
+
+    if(metronome->current_beat > 0) {
+        if(metronome->notification_type_settings[NOTIF_SOUND]) {
+            notification_message(metronome->notifications, &sequence_play_sound);
+        }
+        if(metronome->notification_type_settings[NOTIF_LED]) {
+            notification_message(metronome->notifications, &sequence_blink_green_100);
+        }
+        if(metronome->notification_type_settings[NOTIF_BUZZER]) {
+            notification_message(metronome->notifications, &sequence_vibro_short);
+        }
+    } else {
+        if(metronome->notification_type_settings[NOTIF_SOUND]) {
+            notification_message(metronome->notifications, &sequence_play_sound_em);
+        }
+        if(metronome->notification_type_settings[NOTIF_LED]) {
+            notification_message(metronome->notifications, &sequence_blink_red_100);
+        }
+        if(metronome->notification_type_settings[NOTIF_BUZZER]) {
+            notification_message(metronome->notifications, &sequence_vibro_short_em);
+        }
     }
     FURI_LOG_I(TAG, "notifications done");
     if(metronome->active) {
@@ -161,6 +212,7 @@ static metronomeCtx* allocate_metronome(void) {
         ctx->menu = NULL;
         ctx->view =
             view_alloc(get_bpm, set_bpm, set_metronome_active, set_enabled, menu_screen_req, ctx);
+        ctx->rythm = RYTHM_NONE;
         Storage* storage = furi_record_open(RECORD_STORAGE);
         File* file = storage_file_alloc(storage);
 
@@ -229,6 +281,7 @@ static void metronome_display_main(metronomeCtx* metronome) {
                     main_screen_req,
                     set_notification_callback,
                     get_notification_callback,
+                    rythm_callback,
                     metronome);
             }
             menu_run(metronome->menu);
