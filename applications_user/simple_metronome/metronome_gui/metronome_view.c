@@ -2,10 +2,12 @@
 
 #include "gui/gui.h"
 #include "gui/canvas.h"
+#include "gui/elements.h"
 #include "input/input.h"
 #include "furi.h"
 
 #include <string.h>
+#include "simple_metronome_icons.h"
 
 #define TAG "MV"
 /* 
@@ -52,14 +54,20 @@ static void input_bpm_cb(InputEvent* event, void* ctx) {
         bpm = (bpm > stepSize) ? (uint8_t)(bpm - stepSize) : 0u;
         break;
     case InputKeyOk:
-        view->active = !view->active;
-        view->set_active(view->active, view->bpm_cb_ctx);
+        if(event->type == InputTypeShort) {
+            view->active = !view->active;
+            view->set_active(view->active, view->bpm_cb_ctx);
+        }
         break;
     case InputKeyBack:
-        view->set_enabled(false, view->bpm_cb_ctx);
+        if(event->type == InputTypeShort) {
+            view->set_enabled(false, view->bpm_cb_ctx);
+        }
         break;
     case InputKeyRight:
-        view->screen_req(view->bpm_cb_ctx);
+        if(event->type == InputTypeShort) {
+            view->screen_req(view->bpm_cb_ctx);
+        }
         /* open menu */ break;
     default:
         /*nothing*/ break;
@@ -86,6 +94,8 @@ static void draw_bpm_cb(Canvas* canvas, void* ctx) {
 
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, center_x - 20, y_pos, AlignLeft, AlignCenter, "BPM: ");
+    elements_button_right(canvas, "Config");
+    canvas_draw_icon(canvas, 5, 18, &I_flipper_metronome);
 }
 
 MetroView_t view_alloc(
@@ -117,10 +127,20 @@ void view_run(MetroView_t view) {
 }
 
 void view_free(MetroView_t view) {
+    FURI_LOG_I(TAG, "freeing view");
     furi_assert(view);
-
     gui_remove_view_port(view->gui, view->bpm_vp);
     view_port_free(view->bpm_vp);
+
+    view->gui = NULL;
+    view->bpm_vp = NULL;
+    view->bpm_cb_ctx = NULL;
+    view->get_bpm = NULL;
+    view->set_bpm = NULL;
+    view->set_active = NULL;
+    view->set_enabled = NULL;
+    view->screen_req = NULL;
+
     furi_record_close(RECORD_GUI);
     free(view);
 }

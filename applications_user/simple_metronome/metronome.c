@@ -5,11 +5,16 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+
 #include <furi.h>
+
 #include "notification/notification.h"
 #include "notification/notification_messages.h"
+#include "notification/notification_messages_notes.h"
+
 #include "metronome_gui/menu.h"
 #include "metronome_gui/metronome_view.h"
+#include "metronome.h"
 
 #define TAG __FILE__
 #define DEFAULT_BPM 60
@@ -34,7 +39,21 @@ typedef struct {
     metronomeMenu_t menu;
     MetroView_t view;
     screen_t screen;
+    bool notification_type_settings[NOTIF_MAX];
 } metronomeCtx;
+
+/* required to be static */
+static const NotificationSequence sequence_play_sound = {
+    &message_note_a4,
+    &message_delay_50,
+    &message_sound_off,
+    NULL, /* null at end of sequence required */
+};
+
+static void notification_callback(bool active, NotificationType notification, void* ctx) {
+    metronomeCtx* metronome = (metronomeCtx*)ctx;
+    metronome->notification_type_settings[notification] = active;
+}
 
 static uint8_t get_bpm(void* ctx) {
     metronomeCtx* metronome = (metronomeCtx*)ctx;
@@ -42,11 +61,13 @@ static uint8_t get_bpm(void* ctx) {
 }
 
 static void set_bpm(uint8_t bpm, void* ctx) {
+    FURI_LOG_I(TAG, "set bpm callback %u", bpm);
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     metronome->bpm = bpm;
 }
 
 static void set_metronome_active(bool active, void* ctx) {
+    FURI_LOG_I(TAG, "metronome active cb:  %s", active ? "on" : "off");
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     metronome->active = active;
     if(metronome->active) {
@@ -61,17 +82,20 @@ static void set_metronome_active(bool active, void* ctx) {
 }
 
 static void set_enabled(bool enabled, void* ctx) {
+    FURI_LOG_I(TAG, "set enabled cb");
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     metronome->exit = !enabled;
     set_metronome_active(false, ctx);
 }
 
 static void menu_screen_req(void* ctx) {
+    FURI_LOG_I(TAG, "set menu screen req");
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     metronome->screen = E_SCREEN_MENU;
 }
 
 static void main_screen_req(void* ctx) {
+    FURI_LOG_I(TAG, "set main screen req");
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     metronome->screen = E_SCREEN_MAIN;
 }
@@ -79,8 +103,19 @@ static void main_screen_req(void* ctx) {
 static void timer_callback(void* ctx) {
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     FURI_LOG_I(TAG, "timer callback");
-    notification_message(metronome->notifications, &sequence_blink_green_100);
-    notification_message(metronome->notifications, &sequence_single_vibro);
+    FURI_LOG_I(TAG, "metronome: %p", ctx);
+    FURI_LOG_I(TAG, "sequence sound: %p", &sequence_play_sound);
+
+    if(metronome->notification_type_settings[NOTIF_SOUND]) {
+        notification_message(metronome->notifications, &sequence_play_sound);
+    }
+    if(metronome->notification_type_settings[NOTIF_LED]) {
+        notification_message(metronome->notifications, &sequence_blink_green_100);
+    }
+    if(metronome->notification_type_settings[NOTIF_BUZZER]) {
+        notification_message(metronome->notifications, &sequence_single_vibro);
+    }
+    FURI_LOG_I(TAG, "notifications done");
     if(metronome->active) {
         static uint8_t bpm_last = DEFAULT_BPM;
         const uint8_t bpm_current = get_bpm(ctx);
@@ -107,14 +142,21 @@ static metronomeCtx* allocate_metronome(void) {
         ctx->menu = NULL;
         ctx->view =
             view_alloc(get_bpm, set_bpm, set_metronome_active, set_enabled, menu_screen_req, ctx);
+        for(size_t index = 0u; index < (size_t)NOTIF_MAX; index++) {
+            ctx->notification_type_settings[index] = true;
+        }
     }
     return ctx;
 }
 
 static void free_metronome(metronomeCtx* ctx) {
     FURI_LOG_I(TAG, "stopping metronome");
-    view_free(ctx->view);
-    menu_free(ctx->menu);
+    if(ctx->view != NULL) {
+        view_free(ctx->view);
+    }
+    if(ctx->menu != NULL) {
+        menu_free(ctx->menu);
+    }
     ctx->currentState = false;
     ctx->active = false;
     ctx->exit = true;
@@ -126,26 +168,29 @@ static void free_metronome(metronomeCtx* ctx) {
 static void metronome_display_main(metronomeCtx* metronome) {
     while(metronome->exit == false) {
         static screen_t s_prev = E_SCREEN_MENU;
+        if(metronome->screen != s_prev) {
+            FURI_LOG_I(TAG, "changing screen");
+        }
         switch(metronome->screen) {
         case E_SCREEN_MAIN:
             if(s_prev == E_SCREEN_MENU) {
                 menu_free(metronome->menu);
                 metronome->menu = NULL;
-                metronome->view = view_alloc(
-                    get_bpm,
-                    set_bpm,
-                    set_metronome_active,
-                    set_enabled,
-                    menu_screen_req,
-                    metronome);
+                //     metronome->view = view_alloc(
+                //         get_bpm,
+                //         set_bpm,
+                //         set_metronome_active,
+                //         set_enabled,
+                //         menu_screen_req,
+                //         metronome);
             }
             view_run(metronome->view);
             break;
         case E_SCREEN_MENU:
             if(s_prev == E_SCREEN_MAIN) {
-                view_free(metronome->view);
-                metronome->view = NULL;
-                metronome->menu = menu_alloc(main_screen_req, metronome);
+                //     view_free(metronome->view);
+                //     metronome->view = NULL;
+                metronome->menu = menu_alloc(main_screen_req, notification_callback, metronome);
             }
             menu_run(metronome->menu);
             break;
