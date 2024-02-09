@@ -41,7 +41,6 @@ static void notification_type_changed(VariableItem* item) {
         variable_item_list_get_selected_item_index(menu->var_item_list);
     uint8_t index = variable_item_get_current_value_index(item);
     variable_item_set_current_value_text(item, on_off_option_type[index]);
-    /* TODO: Forward setting to metronome */
     menu->notif_cb(index > 0, (NotificationType)notificationIndex, menu->cb_ctx);
 }
 
@@ -52,8 +51,11 @@ static uint32_t menu_exit(void* context) {
     return VIEW_NONE;
 }
 
-metronomeMenu_t
-    menu_alloc(ScreenRequestCb screen_req, NotificationTypeCb notification_type_cb, void* cb_ctx) {
+metronomeMenu_t menu_alloc(
+    ScreenRequestCb screen_req,
+    NotificationTypeCb notification_type_cb,
+    NotificationGetCb notification_get_cb,
+    void* cb_ctx) {
     struct metronomeMenu* const menu = malloc(sizeof(struct metronomeMenu));
     furi_assert(menu != NULL);
 
@@ -68,6 +70,7 @@ metronomeMenu_t
     view_dispatcher_attach_to_gui(menu->view_dispatcher, menu->gui, ViewDispatcherTypeFullscreen);
 
     menu->var_item_list = variable_item_list_alloc();
+    furi_assert(notification_get_cb != NULL);
     for(size_t index = 0u; index < (size_t)NOTIF_MAX; ++index) {
         NotificationType notification = (NotificationType)index;
         VariableItem* item = variable_item_list_add(
@@ -76,8 +79,11 @@ metronomeMenu_t
             COUNT_OF(on_off_option_type),
             notification_type_changed,
             menu);
-        variable_item_set_current_value_index(item, 1u);
-        variable_item_set_current_value_text(item, on_off_option_type[1u]);
+        /* set current settings */
+        bool active = notification_get_cb(notification, cb_ctx);
+        uint8_t active_index = active ? 1u : 0u;
+        variable_item_set_current_value_index(item, active_index);
+        variable_item_set_current_value_text(item, on_off_option_type[active_index]);
     }
 
     view_set_previous_callback(variable_item_list_get_view(menu->var_item_list), menu_exit);

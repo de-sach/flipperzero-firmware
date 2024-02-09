@@ -11,6 +11,7 @@
 #include "notification/notification.h"
 #include "notification/notification_messages.h"
 #include "notification/notification_messages_notes.h"
+#include "storage/storage.h"
 
 #include "metronome_gui/menu.h"
 #include "metronome_gui/metronome_view.h"
@@ -18,6 +19,7 @@
 
 #define TAG __FILE__
 #define DEFAULT_BPM 60
+#define SETTINGS_FILE "metronome_settings.txt"
 
 enum errorCodes {
     STATUS_SUCCESS = 0,
@@ -50,9 +52,26 @@ static const NotificationSequence sequence_play_sound = {
     NULL, /* null at end of sequence required */
 };
 
-static void notification_callback(bool active, NotificationType notification, void* ctx) {
+static bool get_notification_callback(NotificationType notification, void* ctx) {
+    metronomeCtx* metronome = (metronomeCtx*)ctx;
+    return metronome->notification_type_settings[notification];
+}
+
+static void set_notification_callback(bool active, NotificationType notification, void* ctx) {
     metronomeCtx* metronome = (metronomeCtx*)ctx;
     metronome->notification_type_settings[notification] = active;
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
+    bool open_success =
+        storage_file_open(file, APP_DATA_PATH(SETTINGS_FILE), FSAM_WRITE, FSOM_OPEN_ALWAYS);
+    if(open_success) {
+        size_t bytes_written =
+            storage_file_write(file, metronome->notification_type_settings, (size_t)NOTIF_MAX);
+        furi_assert(bytes_written == (size_t)NOTIF_MAX);
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
 }
 
 static uint8_t get_bpm(void* ctx) {
@@ -142,9 +161,34 @@ static metronomeCtx* allocate_metronome(void) {
         ctx->menu = NULL;
         ctx->view =
             view_alloc(get_bpm, set_bpm, set_metronome_active, set_enabled, menu_screen_req, ctx);
-        for(size_t index = 0u; index < (size_t)NOTIF_MAX; index++) {
-            ctx->notification_type_settings[index] = true;
+        Storage* storage = furi_record_open(RECORD_STORAGE);
+        File* file = storage_file_alloc(storage);
+
+        bool open_success = storage_file_open(
+            file, APP_DATA_PATH(SETTINGS_FILE), FSAM_READ_WRITE, FSOM_OPEN_ALWAYS);
+        if(open_success) {
+            bool buffer[NOTIF_MAX] = {false, false, false};
+            size_t const bytes_read = storage_file_read(file, buffer, sizeof(buffer));
+            if(bytes_read == NOTIF_MAX) {
+                for(size_t index = 0u; index < (size_t)NOTIF_MAX; index++) {
+                    ctx->notification_type_settings[index] = buffer[index];
+                }
+            } else {
+                for(size_t index = 0u; index < (size_t)NOTIF_MAX; index++) {
+                    ctx->notification_type_settings[index] = true;
+                    buffer[index] = true;
+                }
+                size_t const bytes_written = storage_file_write(file, buffer, sizeof(buffer));
+                furi_assert(bytes_written == ((size_t)NOTIF_MAX));
+            }
+            storage_file_close(file);
+        } else {
+            for(size_t index = 0u; index < (size_t)NOTIF_MAX; index++) {
+                ctx->notification_type_settings[index] = true;
+            }
         }
+        storage_file_free(file);
+        furi_record_close(RECORD_STORAGE);
     }
     return ctx;
 }
@@ -176,21 +220,16 @@ static void metronome_display_main(metronomeCtx* metronome) {
             if(s_prev == E_SCREEN_MENU) {
                 menu_free(metronome->menu);
                 metronome->menu = NULL;
-                //     metronome->view = view_alloc(
-                //         get_bpm,
-                //         set_bpm,
-                //         set_metronome_active,
-                //         set_enabled,
-                //         menu_screen_req,
-                //         metronome);
             }
             view_run(metronome->view);
             break;
         case E_SCREEN_MENU:
             if(s_prev == E_SCREEN_MAIN) {
-                //     view_free(metronome->view);
-                //     metronome->view = NULL;
-                metronome->menu = menu_alloc(main_screen_req, notification_callback, metronome);
+                metronome->menu = menu_alloc(
+                    main_screen_req,
+                    set_notification_callback,
+                    get_notification_callback,
+                    metronome);
             }
             menu_run(metronome->menu);
             break;
