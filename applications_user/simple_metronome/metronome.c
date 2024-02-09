@@ -8,6 +8,7 @@
 #include <furi.h>
 #include "notification/notification.h"
 #include "notification/notification_messages.h"
+#include "metronome_gui/menu.h"
 
 #define TAG __FILE__
 #define DEFAULT_BPM 60
@@ -23,6 +24,7 @@ typedef struct {
     uint32_t maxCount;
     FuriTimer* timer;
     NotificationApp* notifications;
+    metronomeMenu_t menu;
 } metronomeCtx;
 
 static void timer_callback(void* ctx) {
@@ -42,12 +44,14 @@ static metronomeCtx* allocate_metronome(void) {
         ctx->notifications = furi_record_open(RECORD_NOTIFICATION);
         ctx->timer = furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, ctx);
         ctx->maxCount = 10u;
+        ctx->menu = menu_alloc();
     }
     return ctx;
 }
 
 static void free_metronome(metronomeCtx* ctx) {
     FURI_LOG_I(TAG, "stopping metronome");
+    menu_free(ctx->menu);
     ctx->currentState = false;
     ctx->active = false;
     furi_timer_free(ctx->timer);
@@ -61,6 +65,7 @@ static void metronome_display_main(metronomeCtx* metronome) {
     furi_timer_start(metronome->timer, bpmInTicks);
 
     while(metronome->active) {
+        menu_run(metronome->menu);
         furi_delay_ms(100u);
         if(metronome->maxCount == 0u) {
             metronome->active = false;
