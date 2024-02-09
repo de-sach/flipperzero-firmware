@@ -22,6 +22,8 @@ const char* const notification_type[NOTIF_MAX] = {
 
 const char* const on_off_option_type[2u] = {"OFF", "ON"};
 
+const char* const rythms[] = {"none", "2/4", "3/4", "4/4", "6/8"};
+
 static bool s_back = false;
 
 struct metronomeMenu {
@@ -42,6 +44,15 @@ static void notification_type_changed(VariableItem* item) {
     uint8_t index = variable_item_get_current_value_index(item);
     variable_item_set_current_value_text(item, on_off_option_type[index]);
     menu->notif_cb(index > 0, (NotificationType)notificationIndex, menu->cb_ctx);
+}
+
+static void rythm_changed(VariableItem* item) {
+#if 0
+    metronomeMenu_t menu = (metronomeMenu_t)variable_item_get_context(item);
+#endif
+    uint8_t index = variable_item_get_current_value_index(item);
+    variable_item_set_current_value_text(item, rythms[index]);
+    /* TODO: notify app */
 }
 
 static uint32_t menu_exit(void* context) {
@@ -85,6 +96,11 @@ metronomeMenu_t menu_alloc(
         variable_item_set_current_value_index(item, active_index);
         variable_item_set_current_value_text(item, on_off_option_type[active_index]);
     }
+
+    VariableItem* item = variable_item_list_add(
+        menu->var_item_list, "rythm", COUNT_OF(rythms), rythm_changed, menu);
+    variable_item_set_current_value_index(item, 0u);
+    variable_item_set_current_value_text(item, rythms[0]);
 
     view_set_previous_callback(variable_item_list_get_view(menu->var_item_list), menu_exit);
 
