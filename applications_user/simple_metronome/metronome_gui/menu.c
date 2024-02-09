@@ -20,12 +20,16 @@ const char* const notification_type[NOTIF_MAX] = {
     [NOTIF_LED] = "led",
 };
 
+static bool s_back = false;
+
 struct metronomeMenu {
     bool active;
     NotificationType notif_type;
     Gui* gui;
     ViewDispatcher* view_dispatcher;
     VariableItemList* var_item_list;
+    ScreenRequestCb screen_req;
+    void* cb_ctx;
 };
 
 static void notification_type_changed(VariableItem* item) {
@@ -37,9 +41,10 @@ static void notification_type_changed(VariableItem* item) {
 static uint32_t menu_exit(void* context) {
     UNUSED(context);
     return VIEW_NONE;
+    s_back = true;
 }
 
-metronomeMenu_t menu_alloc(void) {
+metronomeMenu_t menu_alloc(ScreenRequestCb screen_req, void* cb_ctx) {
     struct metronomeMenu* const menu = malloc(sizeof(struct metronomeMenu));
     furi_assert(menu != NULL);
 
@@ -67,11 +72,17 @@ metronomeMenu_t menu_alloc(void) {
     view_dispatcher_add_view(
         menu->view_dispatcher, CURRENT_VIEW, variable_item_list_get_view(menu->var_item_list));
     view_dispatcher_switch_to_view(menu->view_dispatcher, CURRENT_VIEW);
+    menu->screen_req = screen_req;
+    menu->cb_ctx = cb_ctx;
     return menu;
 }
 
 void menu_run(metronomeMenu_t menu) {
     if(!menu) return;
+    if(s_back) {
+        s_back = false;
+        menu->screen_req(menu->cb_ctx);
+    }
     view_dispatcher_run(menu->view_dispatcher);
 }
 

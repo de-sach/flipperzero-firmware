@@ -23,6 +23,8 @@ struct MetroView {
     ViewPort* bpm_vp;
     bool active;
     SetActiveCb set_active;
+    SetEnabledCb set_enabled;
+    ScreenRequestCb screen_req;
 };
 
 static void input_bpm_cb(InputEvent* event, void* ctx) {
@@ -33,6 +35,7 @@ static void input_bpm_cb(InputEvent* event, void* ctx) {
         stepSize = 1u;
         break;
     case InputTypeLong:
+    case InputTypeRepeat:
         stepSize = 5u;
         break;
     default:
@@ -41,15 +44,25 @@ static void input_bpm_cb(InputEvent* event, void* ctx) {
     }
     uint8_t bpm = view->get_bpm(view->bpm_cb_ctx);
 
-    if(event->key == InputKeyUp) {
+    switch(event->key) {
+    case InputKeyUp:
         bpm = (bpm < (UINT8_MAX - stepSize)) ? (uint8_t)(bpm + stepSize) : UINT8_MAX;
-    } else if(event->key == InputKeyDown) {
+        break;
+    case InputKeyDown:
         bpm = (bpm > stepSize) ? (uint8_t)(bpm - stepSize) : 0u;
-    } else if(event->key == InputKeyOk) {
+        break;
+    case InputKeyOk:
         view->active = !view->active;
-        view->set_active(view->set_active, view->bpm_cb_ctx);
-    } else {
-        /* don't change bpm */
+        view->set_active(view->active, view->bpm_cb_ctx);
+        break;
+    case InputKeyBack:
+        view->set_enabled(false, view->bpm_cb_ctx);
+        break;
+    case InputKeyRight:
+        view->screen_req(view->bpm_cb_ctx);
+        /* open menu */ break;
+    default:
+        /*nothing*/ break;
     }
     if(stepSize > 0u) {
         view->set_bpm(bpm, view->bpm_cb_ctx);
@@ -75,7 +88,13 @@ static void draw_bpm_cb(Canvas* canvas, void* ctx) {
     canvas_draw_str_aligned(canvas, center_x - 20, y_pos, AlignLeft, AlignCenter, "BPM: ");
 }
 
-MetroView_t view_alloc(GetBpmCb get_bpm, SetBpmCb set_bpm, SetActiveCb set_active, void* ctx) {
+MetroView_t view_alloc(
+    GetBpmCb get_bpm,
+    SetBpmCb set_bpm,
+    SetActiveCb set_active,
+    SetEnabledCb set_enabled,
+    ScreenRequestCb screen_req,
+    void* ctx) {
     struct MetroView* view = malloc(sizeof(struct MetroView));
     furi_assert(view);
     view->gui = furi_record_open(RECORD_GUI);
@@ -84,6 +103,8 @@ MetroView_t view_alloc(GetBpmCb get_bpm, SetBpmCb set_bpm, SetActiveCb set_activ
     view->get_bpm = get_bpm;
     view->set_bpm = set_bpm;
     view->set_active = set_active;
+    view->set_enabled = set_enabled;
+    view->screen_req = screen_req;
     view_port_draw_callback_set(view->bpm_vp, draw_bpm_cb, view);
     view_port_input_callback_set(view->bpm_vp, input_bpm_cb, view);
     gui_add_view_port(view->gui, view->bpm_vp, GuiLayerFullscreen);
