@@ -1,0 +1,10 @@
+App(
+    appid="subghz_analyzer",
+    name="Subghz analyzer",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="subghz_analyzer_entry",
+    targets=["f7"],
+    stack_size=1 * 1024,
+    fap_category="Sub-Ghz",
+    fap_libs=["hwdrivers"],
+)
