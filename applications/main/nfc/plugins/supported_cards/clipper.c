@@ -22,9 +22,9 @@
 
 #include <flipper_application/flipper_application.h>
 #include <lib/nfc/protocols/mf_desfire/mf_desfire.h>
-#include <lib/nfc/helpers/nfc_util.h>
+#include <bit_lib/bit_lib.h>
 #include <applications/services/locale/locale.h>
-#include <furi_hal_rtc.h>
+#include <datetime/datetime.h>
 #include <inttypes.h>
 
 //
@@ -101,12 +101,13 @@ static const IdMapping bart_zones[] = {
     {.id = 0x001d, .name = "Lake Merrit"},
     {.id = 0x001e, .name = "Fruitvale"},
     {.id = 0x001f, .name = "Coliseum"},
-    {.id = 0x0021, .name = "San Leandro"},
+    {.id = 0x0020, .name = "San Leandro"},
+    {.id = 0x0021, .name = "Bay Fair"},
     {.id = 0x0022, .name = "Hayward"},
     {.id = 0x0023, .name = "South Hayward"},
     {.id = 0x0024, .name = "Union City"},
     {.id = 0x0025, .name = "Fremont"},
-    {.id = 0x0026, .name = "Daly City(2)?"},
+    {.id = 0x0026, .name = "Castro Valley"},
     {.id = 0x0027, .name = "Dublin/Pleasanton"},
     {.id = 0x0028, .name = "South San Francisco"},
     {.id = 0x0029, .name = "San Bruno"},
@@ -115,6 +116,8 @@ static const IdMapping bart_zones[] = {
     {.id = 0x002c, .name = "West Dublin/Pleasanton"},
     {.id = 0x002d, .name = "OAK Airport"},
     {.id = 0x002e, .name = "Warm Springs/South Fremont"},
+    {.id = 0x002f, .name = "Milpitas"},
+    {.id = 0x0030, .name = "Berryessa/North San Jose"},
 };
 static const size_t kNumBARTZones = COUNT(bart_zones);
 
@@ -129,6 +132,9 @@ static const IdMapping muni_zones[] = {
     {.id = 0x000b, .name = "Castro"},
     {.id = 0x000c, .name = "Forest Hill"}, // Guessed
     {.id = 0x000d, .name = "West Portal"},
+    {.id = 0x0019, .name = "Union Square/Market Street"},
+    {.id = 0x001a, .name = "Chinatown - Rose Pak"},
+    {.id = 0x001b, .name = "Yerba Buena/Moscone"},
 };
 static const size_t kNumMUNIZones = COUNT(muni_zones);
 
@@ -136,6 +142,19 @@ static const IdMapping actransit_zones[] = {
     {.id = 0x0000, .name = "City Street"},
 };
 static const size_t kNumACTransitZones = COUNT(actransit_zones);
+
+// Instead of persisting individual Station IDs, Caltrain saves Zone numbers.
+// https://www.caltrain.com/stations-zones
+static const IdMapping caltrain_zones[] = {
+    {.id = 0x0001, .name = "Zone 1"},
+    {.id = 0x0002, .name = "Zone 2"},
+    {.id = 0x0003, .name = "Zone 3"},
+    {.id = 0x0004, .name = "Zone 4"},
+    {.id = 0x0005, .name = "Zone 5"},
+    {.id = 0x0006, .name = "Zone 6"},
+};
+
+static const size_t kNumCaltrainZones = COUNT(caltrain_zones);
 
 //
 // Full agency+zone mapping.
@@ -147,6 +166,7 @@ static const struct {
 } agency_zone_map[] = {
     {.agency_id = 0x0001, .zone_map = actransit_zones, .zone_count = kNumACTransitZones},
     {.agency_id = 0x0004, .zone_map = bart_zones, .zone_count = kNumBARTZones},
+    {.agency_id = 0x0006, .zone_map = caltrain_zones, .zone_count = kNumCaltrainZones},
     {.agency_id = 0x0012, .zone_map = muni_zones, .zone_count = kNumMUNIZones}};
 static const size_t kNumAgencyZoneMaps = COUNT(agency_zone_map);
 
@@ -172,7 +192,7 @@ static void furi_string_cat_timestamp(
     const char* date_hdr,
     const char* time_hdr,
     uint32_t tmst_1900);
-static void epoch_1900_datetime_to_furi(uint32_t seconds, FuriHalRtcDateTime* out);
+static void epoch_1900_datetime_to_furi(uint32_t seconds, DateTime* out);
 static bool get_file_contents(
     const MfDesfireApplication* app,
     const MfDesfireFileId* id,
@@ -194,12 +214,12 @@ static bool dump_ride_event(const uint8_t* record, FuriString* parsed_data);
 
 // Unmarshal a 32-bit integer, big endian, unsigned
 static inline uint32_t get_u32be(const uint8_t* field) {
-    return nfc_util_bytes2num(field, 4);
+    return bit_lib_bytes_to_num_be(field, 4);
 }
 
 // Unmarshal a 16-bit integer, big endian, unsigned
 static uint16_t get_u16be(const uint8_t* field) {
-    return nfc_util_bytes2num(field, 2);
+    return bit_lib_bytes_to_num_be(field, 2);
 }
 
 // Unmarshal a 16-bit integer, big endian, signed, two's-complement
@@ -330,7 +350,7 @@ static bool decode_id_file(const uint8_t* ef8_data, ClipperCardInfo* info) {
     // uk             ?8??       Unknown, 8-bit byte
     // card_id        U32BE      Card identifier
     //
-    info->serial_number = nfc_util_bytes2num(&ef8_data[1], 4);
+    info->serial_number = bit_lib_bytes_to_num_be(&ef8_data[1], 4);
     return true;
 }
 
@@ -527,7 +547,7 @@ static void furi_string_cat_timestamp(
     const char* date_hdr,
     const char* time_hdr,
     uint32_t tmst_1900) {
-    FuriHalRtcDateTime tm;
+    DateTime tm;
 
     epoch_1900_datetime_to_furi(tmst_1900, &tm);
 
@@ -550,7 +570,7 @@ static void furi_string_cat_timestamp(
 }
 
 // Convert a "1900"-based timestamp to Furi time, assuming a UTC/GMT timezone.
-static void epoch_1900_datetime_to_furi(uint32_t seconds, FuriHalRtcDateTime* out) {
+static void epoch_1900_datetime_to_furi(uint32_t seconds, DateTime* out) {
     uint16_t year, month, day, hour, minute, second;
 
     // Calculate absolute number of days elapsed since the 1900 epoch
@@ -568,17 +588,17 @@ static void epoch_1900_datetime_to_furi(uint32_t seconds, FuriHalRtcDateTime* ou
     //
 
     for(year = 1900;; year++) {
-        uint16_t year_days = furi_hal_rtc_get_days_per_year(year);
+        uint16_t year_days = datetime_get_days_per_year(year);
         if(absolute_days >= year_days)
             absolute_days -= year_days;
         else
             break;
     }
 
-    bool is_leap = furi_hal_rtc_is_leap_year(year);
+    bool is_leap = datetime_is_leap_year(year);
 
     for(month = 1;; month++) {
-        uint8_t days_in_month = furi_hal_rtc_get_days_per_month(is_leap, month);
+        uint8_t days_in_month = datetime_get_days_per_month(is_leap, month);
         if(absolute_days >= days_in_month)
             absolute_days -= days_in_month;
         else
@@ -616,6 +636,6 @@ static const FlipperAppPluginDescriptor clipper_plugin_descriptor = {
 };
 
 /* Plugin entry point - must return a pointer to const descriptor  */
-const FlipperAppPluginDescriptor* clipper_plugin_ep() {
+const FlipperAppPluginDescriptor* clipper_plugin_ep(void) {
     return &clipper_plugin_descriptor;
 }

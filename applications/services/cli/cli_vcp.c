@@ -1,7 +1,7 @@
+#include "cli_i.h" // IWYU pragma: keep
 #include <furi_hal_usb_cdc.h>
 #include <furi_hal.h>
 #include <furi.h>
-#include "cli_i.h"
 
 #define TAG "CliVcp"
 
@@ -64,7 +64,7 @@ static CliVcp* vcp = NULL;
 static const uint8_t ascii_soh = 0x01;
 static const uint8_t ascii_eot = 0x04;
 
-static void cli_vcp_init() {
+static void cli_vcp_init(void) {
     if(vcp == NULL) {
         vcp = malloc(sizeof(CliVcp));
         vcp->tx_stream = furi_stream_buffer_alloc(VCP_TX_BUF_SIZE, 1);
@@ -80,7 +80,7 @@ static void cli_vcp_init() {
     FURI_LOG_I(TAG, "Init OK");
 }
 
-static void cli_vcp_deinit() {
+static void cli_vcp_deinit(void) {
     furi_thread_flags_set(furi_thread_get_id(vcp->thread), VcpEvtStop);
     furi_thread_join(vcp->thread);
     furi_thread_free(vcp->thread);
@@ -242,6 +242,11 @@ static size_t cli_vcp_rx(uint8_t* buffer, size_t size, uint32_t timeout) {
     return rx_cnt;
 }
 
+static size_t cli_vcp_rx_stdin(uint8_t* data, size_t size, uint32_t timeout, void* context) {
+    UNUSED(context);
+    return cli_vcp_rx(data, size, timeout);
+}
+
 static void cli_vcp_tx(const uint8_t* buffer, size_t size) {
     furi_assert(vcp);
     furi_assert(buffer);
@@ -267,7 +272,8 @@ static void cli_vcp_tx(const uint8_t* buffer, size_t size) {
     VCP_DEBUG("tx %u end", size);
 }
 
-static void cli_vcp_tx_stdout(const char* data, size_t size) {
+static void cli_vcp_tx_stdout(const char* data, size_t size, void* context) {
+    UNUSED(context);
     cli_vcp_tx((const uint8_t*)data, size);
 }
 
@@ -310,6 +316,7 @@ CliSession cli_vcp = {
     cli_vcp_init,
     cli_vcp_deinit,
     cli_vcp_rx,
+    cli_vcp_rx_stdin,
     cli_vcp_tx,
     cli_vcp_tx_stdout,
     cli_vcp_is_connected,
