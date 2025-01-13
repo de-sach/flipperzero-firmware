@@ -23,8 +23,49 @@ static const flashcard_record_t s_flash_cards[] = {
     {"beneden", "down"},
 };
 #endif
-
+static bool s_exitFlag = false;
 static singly_linked_list_head_t s_list;
+static bool s_keyNotValue = false;
+static size_t s_index = 0u;
+
+static void input_callback(InputEvent* event, void* ctx) {
+    UNUSED(ctx);
+    FURI_LOG_I(TAG, "event callback %i called with key %i", event->type, event->key);
+    switch(event->type) {
+    case InputTypeShort:
+        if(event->key == InputKeyBack) {
+            s_exitFlag = true;
+        } else if(event->key == InputKeyOk) {
+            s_keyNotValue = !s_keyNotValue;
+        } else if(event->key == InputKeyRight) {
+            s_keyNotValue = false;
+            s_index += 1u;
+            if(s_index >= s_list.count) {
+                s_index = 0u;
+            }
+        } else if(event->key == InputKeyLeft) {
+            s_keyNotValue = false;
+            if(s_index == 0u) {
+                s_index = s_list.count;
+            }
+            s_index--;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+static void draw_callback(Canvas* canvas, void* ctx) {
+    UNUSED(ctx);
+    FURI_LOG_I(TAG, "draw callback called");
+    flashcard_record_t* rec =
+        (flashcard_record_t*)signly_linked_list_get_data_at_index(&s_list, s_index);
+    char const* text = s_keyNotValue ? rec->key : rec->value;
+    const size_t middle_x = canvas_width(canvas) / 2u;
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, middle_x, 12, AlignCenter, AlignBottom, text);
+}
 
 static int parse_flash_cards_data(File* file) {
     int ret = -1;
@@ -122,6 +163,37 @@ int32_t flashcards_main(void* p) {
 
     // Close storage
     furi_record_close(RECORD_STORAGE);
+
+    ViewPort* view_port = view_port_alloc();
+    if(!view_port) {
+        FURI_LOG_W(TAG, "failed to allocate viewport");
+        return -1;
+    }
+    FURI_LOG_I(TAG, "viewport allocated");
+
+    view_port_draw_callback_set(view_port, draw_callback, NULL);
+    view_port_input_callback_set(view_port, input_callback, NULL);
+    FURI_LOG_I(TAG, "callbacks set");
+
+    Gui* gui = furi_record_open(RECORD_GUI);
+    if(!gui) {
+        FURI_LOG_W(TAG, "failed to open gui");
+        goto end;
+    }
+    gui_add_view_port(gui, view_port, GuiLayerFullscreen);
+
+    while(s_exitFlag == false) {
+        view_port_update(view_port);
+        furi_delay_ms(1000u);
+        FURI_LOG_I(TAG, "mainloop");
+    };
+    FURI_LOG_I(TAG, "done");
+
+    view_port_enabled_set(view_port, false);
+    gui_remove_view_port(gui, view_port);
+    furi_record_close(RECORD_GUI);
+end:
+    view_port_free(view_port);
 
     return 0;
 }
