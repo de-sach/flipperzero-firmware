@@ -1,8 +1,8 @@
 App(
-    appid="hello_flipper",
-    name="Example: Hello world",
+    appid="flashcards",
+    name="Flash cards",
     apptype=FlipperAppType.EXTERNAL,
-    entry_point="hello_world",
+    entry_point="flashcards_main",
     requires=["gui"],
     stack_size=1 * 1024,
     fap_category="Tools",
